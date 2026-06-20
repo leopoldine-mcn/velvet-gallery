@@ -350,30 +350,70 @@
   // ╔══════════════════════════════════════════════════════════════╗
   // ║  CHANGE THIS PASSWORD before hosting your gallery publicly  ║
   // ╚══════════════════════════════════════════════════════════════╝
-  const ADMIN_PASSWORD = 'leo_velvet';
+  const ADMIN_PASSWORD = 'changeme';
 
   // ── State ──────────────────────────────────────────────────────
-  let photos = JSON.parse(localStorage.getItem('gallery_photos') || '[]');
+  let photos = [];   // loaded from IndexedDB on init
   let lbIndex = 0;
   let isAdmin = sessionStorage.getItem('gallery_admin') === '1';
 
-  const body      = document.body;
-  const gallery   = document.getElementById('gallery');
-  const dropZone  = document.getElementById('drop-zone');
-  const emptyMsg  = document.getElementById('empty-msg');
-  const fileInput = document.getElementById('file-input');
-  const uploadBtn = document.getElementById('upload-btn');
-  const lightbox  = document.getElementById('lightbox');
-  const lbImg     = document.getElementById('lb-img');
-  const lbCounter = document.getElementById('lb-counter');
-  const pwModal   = document.getElementById('pw-modal');
-  const pwInput   = document.getElementById('pw-input');
-  const pwError   = document.getElementById('pw-error');
+  const body        = document.body;
+  const gallery     = document.getElementById('gallery');
+  const dropZone    = document.getElementById('drop-zone');
+  const emptyMsg    = document.getElementById('empty-msg');
+  const fileInput   = document.getElementById('file-input');
+  const uploadBtn   = document.getElementById('upload-btn');
+  const lightbox    = document.getElementById('lightbox');
+  const lbImg       = document.getElementById('lb-img');
+  const lbCounter   = document.getElementById('lb-counter');
+  const pwModal     = document.getElementById('pw-modal');
+  const pwInput     = document.getElementById('pw-input');
+  const pwError     = document.getElementById('pw-error');
   const adminToggle = document.getElementById('admin-toggle');
+
+  // ── IndexedDB ──────────────────────────────────────────────────
+  let db;
+  const DB_NAME = 'gallery_db', DB_VERSION = 1, STORE = 'photos';
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = e => {
+        const d = e.target.result;
+        if (!d.objectStoreNames.contains(STORE))
+          d.createObjectStore(STORE, { keyPath: 'id' });
+      };
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror   = e => reject(e.target.error);
+    });
+  }
+
+  function dbGetAll() {
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror   = e => reject(e.target.error);
+    });
+  }
+
+  function dbPut(photo) {
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(STORE, 'readwrite').objectStore(STORE).put(photo);
+      req.onsuccess = () => resolve();
+      req.onerror   = e => reject(e.target.error);
+    });
+  }
+
+  function dbDelete(id) {
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(STORE, 'readwrite').objectStore(STORE).delete(id);
+      req.onsuccess = () => resolve();
+      req.onerror   = e => reject(e.target.error);
+    });
+  }
 
   // ── Render ─────────────────────────────────────────────────────
   function render() {
-    // Toggle admin UI
     if (isAdmin) {
       body.classList.add('admin-mode');
       uploadBtn.style.display = 'inline-flex';
@@ -384,19 +424,17 @@
       adminToggle.classList.remove('active');
     }
 
-    // Empty states
     const isEmpty = photos.length === 0;
     dropZone.classList.toggle('visible', isEmpty && isAdmin);
     emptyMsg.style.display = isEmpty && !isAdmin ? 'flex' : 'none';
 
-    // Gallery tiles
     gallery.innerHTML = '';
     photos.forEach((photo, i) => {
       const div = document.createElement('div');
       div.className = 'thumb';
       div.innerHTML = `
         <img src="${photo.dataUrl}" alt="${escapeHtml(photo.name)}" loading="lazy" />
-        <button class="del" title="Remove" data-id="${photo.id}">
+        <button class="del" title="Remove">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       `;
@@ -413,15 +451,9 @@
     return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function save() {
-    try { localStorage.setItem('gallery_photos', JSON.stringify(photos)); }
-    catch(e) { /* quota exceeded — photos still show this session */ }
-  }
-
   // ── Password / Admin ────────────────────────────────────────────
   adminToggle.addEventListener('click', () => {
     if (isAdmin) {
-      // Clicking lock while admin → log out
       isAdmin = false;
       sessionStorage.removeItem('gallery_admin');
       render();
@@ -459,26 +491,29 @@
   pwModal.addEventListener('click', e => { if (e.target === pwModal) closePwModal(); });
 
   // ── Upload ─────────────────────────────────────────────────────
-  function handleFiles(files) {
-    if (!isAdmin) return; // safety guard
+  async function handleFiles(files) {
+    if (!isAdmin) return;
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
     if (!imageFiles.length) return;
-    let loaded = 0;
-    imageFiles.forEach(file => {
+
+    await Promise.all(imageFiles.map(file => new Promise(resolve => {
       const reader = new FileReader();
-      reader.onload = e => {
-        photos.push({ id: Date.now() + Math.random(), dataUrl: e.target.result, name: file.name });
-        loaded++;
-        if (loaded === imageFiles.length) { save(); render(); }
+      reader.onload = async e => {
+        const photo = { id: Date.now() + Math.random(), dataUrl: e.target.result, name: file.name };
+        await dbPut(photo);
+        photos.push(photo);
+        resolve();
       };
       reader.readAsDataURL(file);
-    });
+    })));
+    render();
   }
 
-  function deletePhoto(id) {
+  async function deletePhoto(id) {
     if (!isAdmin) return;
+    await dbDelete(id);
     photos = photos.filter(p => p.id !== id);
-    save(); render();
+    render();
   }
 
   fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInput.value = ''; });
@@ -526,7 +561,11 @@
   });
 
   // ── Init ───────────────────────────────────────────────────────
-  render();
+  openDB().then(async database => {
+    db = database;
+    photos = await dbGetAll();
+    render();
+  });
 </script>
 </body>
 </html>
