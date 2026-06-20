@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Gallery</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #fff;
+      color: #222;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 40px 20px;
+      border-bottom: 1px solid #eee;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .upload-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 18px;
+      background: #111;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .upload-btn:hover { background: #333; }
+    .upload-btn svg { flex-shrink: 0; }
+
+    /* Admin lock icon — subtle, always visible */
+    #admin-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #ccc;
+      padding: 4px;
+      transition: color 0.15s;
+      line-height: 0;
+    }
+    #admin-toggle:hover { color: #999; }
+    #admin-toggle.active { color: #111; }
+
+    #file-input { display: none; }
+
+    /* ── Drop zone (shown when gallery is empty AND admin) ── */
+    #drop-zone {
+      display: none; /* hidden until admin mode */
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 60px auto;
+      width: 340px;
+      padding: 48px 32px;
+      border: 2px dashed #ddd;
+      border-radius: 12px;
+      color: #999;
+      text-align: center;
+      transition: border-color 0.15s, background 0.15s;
+      cursor: pointer;
+    }
+    #drop-zone.visible { display: flex; }
+    #drop-zone.drag-over {
+      border-color: #aaa;
+      background: #fafafa;
+    }
+    #drop-zone svg { opacity: 0.4; }
+    #drop-zone p { font-size: 0.9rem; line-height: 1.5; }
+    #drop-zone span { font-size: 0.78rem; color: #bbb; }
+
+    /* empty state for non-admin */
+    #empty-msg {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin: 80px auto;
+      color: #ccc;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    #empty-msg svg { opacity: 0.25; }
+
+    /* ── Grid ── */
+    #gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 4px;
+      padding: 4px 4px 40px;
+    }
+
+    .thumb {
+      position: relative;
+      aspect-ratio: 1;
+      overflow: hidden;
+      cursor: pointer;
+      background: #f4f4f4;
+    }
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.25s;
+    }
+    .thumb:hover img { transform: scale(1.04); }
+
+    /* Delete button — only shown in admin mode */
+    .thumb .del {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 26px;
+      height: 26px;
+      background: rgba(0,0,0,0.55);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      font-size: 14px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s;
+      display: none; /* hidden until admin mode */
+      align-items: center;
+      justify-content: center;
+    }
+    .admin-mode .thumb:hover .del { opacity: 1; }
+    .admin-mode .thumb .del { display: flex; }
+
+    /* ── Password modal ── */
+    #pw-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+    #pw-modal.open { display: flex; }
+
+    #pw-box {
+      background: #fff;
+      border-radius: 10px;
+      padding: 32px 28px 24px;
+      width: 320px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+    }
+    #pw-box h2 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+    #pw-box p  { font-size: 0.82rem; color: #999; margin-bottom: 20px; }
+
+    #pw-input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    #pw-input:focus { border-color: #aaa; }
+    #pw-input.error { border-color: #e55; }
+
+    #pw-error {
+      font-size: 0.78rem;
+      color: #e55;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+
+    .pw-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+    .pw-actions button {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      border: 1px solid #ddd;
+      background: #fff;
+      transition: background 0.15s;
+    }
+    .pw-actions button:hover { background: #f5f5f5; }
+    #pw-submit {
+      background: #111 !important;
+      color: #fff;
+      border-color: #111 !important;
+    }
+    #pw-submit:hover { background: #333 !important; }
+
+    /* ── Lightbox ── */
+    #lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    #lightbox.open { display: flex; }
+
+    #lightbox img {
+      max-width: 90vw;
+      max-height: 88vh;
+      border-radius: 4px;
+      object-fit: contain;
+      user-select: none;
+    }
+
+    .lb-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.12);
+      border: none;
+      color: #fff;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      font-size: 22px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .lb-btn:hover { background: rgba(255,255,255,0.25); }
+    #lb-prev { left: 20px; }
+    #lb-next { right: 20px; }
+
+    #lb-close {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      background: transparent;
+      border: none;
+      color: rgba(255,255,255,0.7);
+      font-size: 28px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 4px 8px;
+      transition: color 0.15s;
+    }
+    #lb-close:hover { color: #fff; }
+
+    #lb-counter {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.5);
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>My Gallery</h1>
+  <div class="header-right">
+    <!-- Upload button: only visible in admin mode -->
+    <button class="upload-btn" id="upload-btn" style="display:none"
+      onclick="document.getElementById('file-input').click()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Upload photos
+    </button>
+    <!-- Lock icon: always visible, opens password prompt -->
+    <button id="admin-toggle" title="Admin login">
+      <svg id="lock-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </button>
+  </div>
+  <input type="file" id="file-input" accept="image/*" multiple />
+</header>
+
+<!-- Empty state for visitors (no admin) -->
+<div id="empty-msg">
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+  <p>No photos yet.</p>
+</div>
+
+<!-- Drop zone: only shown in admin mode when gallery is empty -->
+<div id="drop-zone">
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+  <p>Drop photos here<br>or click to upload</p>
+  <span>JPG, PNG, GIF, WebP supported</span>
+</div>
+
+<div id="gallery"></div>
+
+<!-- Password modal -->
+<div id="pw-modal">
+  <div id="pw-box">
+    <h2>Admin access</h2>
+    <p>Enter your password to manage photos.</p>
+    <input type="password" id="pw-input" placeholder="Password" autocomplete="current-password" />
+    <div id="pw-error"></div>
+    <div class="pw-actions">
+      <button id="pw-cancel">Cancel</button>
+      <button id="pw-submit">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <button id="lb-close">&#215;</button>
+  <button class="lb-btn" id="lb-prev">&#8249;</button>
+  <img id="lb-img" src="" alt="" />
+  <button class="lb-btn" id="lb-next">&#8250;</button>
+  <div id="lb-counter"></div>
+</div>
+
+<script>
+  // ╔══════════════════════════════════════════════════════════════╗
+  // ║  CHANGE THIS PASSWORD before hosting your gallery publicly  ║
+  // ╚══════════════════════════════════════════════════════════════╝
+  const ADMIN_PASSWORD = 'changeme';
+
+  // ── State ──────────────────────────────────────────────────────
+  let photos = JSON.parse(localStorage.getItem('gallery_photos') || '[]');
+  let lbIndex = 0;
+  let isAdmin = sessionStorage.getItem('gallery_admin') === '1';
+
+  const body      = document.body;
+  const gallery   = document.getElementById('gallery');
+  const dropZone  = document.getElementById('drop-zone');
+  const emptyMsg  = document.getElementById('empty-msg');
+  const fileInput = document.getElementById('file-input');
+  const uploadBtn = document.getElementById('upload-btn');
+  const lightbox  = document.getElementById('lightbox');
+  const lbImg     = document.getElementById('lb-img');
+  const lbCounter = document.getElementById('lb-counter');
+  const pwModal   = document.getElementById('pw-modal');
+  const pwInput   = document.getElementById('pw-input');
+  const pwError   = document.getElementById('pw-error');
+  const adminToggle = document.getElementById('admin-toggle');
+
+  // ── Render ─────────────────────────────────────────────────────
+  function render() {
+    // Toggle admin UI
+    if (isAdmin) {
+      body.classList.add('admin-mode');
+      uploadBtn.style.display = 'inline-flex';
+      adminToggle.classList.add('active');
+    } else {
+      body.classList.remove('admin-mode');
+      uploadBtn.style.display = 'none';
+      adminToggle.classList.remove('active');
+    }
+
+    // Empty states
+    const isEmpty = photos.length === 0;
+    dropZone.classList.toggle('visible', isEmpty && isAdmin);
+    emptyMsg.style.display = isEmpty && !isAdmin ? 'flex' : 'none';
+
+    // Gallery tiles
+    gallery.innerHTML = '';
+    photos.forEach((photo, i) => {
+      const div = document.createElement('div');
+      div.className = 'thumb';
+      div.innerHTML = `
+        <img src="${photo.dataUrl}" alt="${escapeHtml(photo.name)}" loading="lazy" />
+        <button class="del" title="Remove" data-id="${photo.id}">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      `;
+      div.querySelector('img').addEventListener('click', () => openLightbox(i));
+      div.querySelector('.del').addEventListener('click', e => {
+        e.stopPropagation();
+        deletePhoto(photo.id);
+      });
+      gallery.appendChild(div);
+    });
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function save() {
+    try { localStorage.setItem('gallery_photos', JSON.stringify(photos)); }
+    catch(e) { /* quota exceeded — photos still show this session */ }
+  }
+
+  // ── Password / Admin ────────────────────────────────────────────
+  adminToggle.addEventListener('click', () => {
+    if (isAdmin) {
+      // Clicking lock while admin → log out
+      isAdmin = false;
+      sessionStorage.removeItem('gallery_admin');
+      render();
+    } else {
+      openPwModal();
+    }
+  });
+
+  function openPwModal() {
+    pwInput.value = '';
+    pwError.textContent = '';
+    pwInput.classList.remove('error');
+    pwModal.classList.add('open');
+    setTimeout(() => pwInput.focus(), 50);
+  }
+
+  function closePwModal() { pwModal.classList.remove('open'); }
+
+  function submitPassword() {
+    if (pwInput.value === ADMIN_PASSWORD) {
+      isAdmin = true;
+      sessionStorage.setItem('gallery_admin', '1');
+      closePwModal();
+      render();
+    } else {
+      pwInput.classList.add('error');
+      pwError.textContent = 'Incorrect password.';
+      pwInput.select();
+    }
+  }
+
+  document.getElementById('pw-submit').addEventListener('click', submitPassword);
+  document.getElementById('pw-cancel').addEventListener('click', closePwModal);
+  pwInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitPassword(); });
+  pwModal.addEventListener('click', e => { if (e.target === pwModal) closePwModal(); });
+
+  // ── Upload ─────────────────────────────────────────────────────
+  function handleFiles(files) {
+    if (!isAdmin) return; // safety guard
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (!imageFiles.length) return;
+    let loaded = 0;
+    imageFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        photos.push({ id: Date.now() + Math.random(), dataUrl: e.target.result, name: file.name });
+        loaded++;
+        if (loaded === imageFiles.length) { save(); render(); }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function deletePhoto(id) {
+    if (!isAdmin) return;
+    photos = photos.filter(p => p.id !== id);
+    save(); render();
+  }
+
+  fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInput.value = ''; });
+
+  dropZone.addEventListener('click', () => isAdmin && fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+  });
+
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.target.closest('#lightbox') || e.target.closest('#pw-modal')) return;
+    handleFiles(e.dataTransfer.files);
+  });
+
+  // ── Lightbox ───────────────────────────────────────────────────
+  function openLightbox(index) {
+    lbIndex = index; showLbPhoto();
+    lightbox.classList.add('open');
+  }
+  function showLbPhoto() {
+    lbImg.src = photos[lbIndex].dataUrl;
+    lbCounter.textContent = `${lbIndex + 1} / ${photos.length}`;
+  }
+  function closeLightbox() { lightbox.classList.remove('open'); }
+
+  document.getElementById('lb-close').addEventListener('click', closeLightbox);
+  document.getElementById('lb-prev').addEventListener('click', () => {
+    lbIndex = (lbIndex - 1 + photos.length) % photos.length; showLbPhoto();
+  });
+  document.getElementById('lb-next').addEventListener('click', () => {
+    lbIndex = (lbIndex + 1) % photos.length; showLbPhoto();
+  });
+  lightbox.addEventListener('click', e => { if (e.target === lightbox) closeLightbox(); });
+
+  document.addEventListener('keydown', e => {
+    if (!lightbox.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowLeft')  { lbIndex = (lbIndex - 1 + photos.length) % photos.length; showLbPhoto(); }
+    if (e.key === 'ArrowRight') { lbIndex = (lbIndex + 1) % photos.length; showLbPhoto(); }
+  });
+
+  // ── Init ───────────────────────────────────────────────────────
+  render();
+</script>
+</body>
+</html>
